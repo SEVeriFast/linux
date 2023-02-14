@@ -319,6 +319,10 @@ SYM_CODE_START(startup_64)
 	 * and command line.
 	 */
 
+	/* tracepoint for bzImage entry point */
+	movb	$0x39, %al
+	outb	$0x80
+	
 	cld
 	cli
 
