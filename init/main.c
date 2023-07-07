@@ -692,12 +692,14 @@ noinline void __ref __noreturn rest_init(void)
 	int pid;
 
 	rcu_scheduler_starting();
+
 	/*
 	 * We need to spawn init first so that it obtains pid 1, however
 	 * the init task will end up wanting to create kthreads, which, if
 	 * we schedule it before we create kthreadd, will OOPS.
 	 */
 	pid = user_mode_thread(kernel_init, NULL, CLONE_FS);
+
 	/*
 	 * Pin init on the boot CPU. Task migration is not properly working
 	 * until sched_init_smp() has been run. It will set the allowed
@@ -725,6 +727,8 @@ noinline void __ref __noreturn rest_init(void)
 	system_state = SYSTEM_SCHEDULING;
 
 	complete(&kthreadd_done);
+
+
 
 	/*
 	 * The boot idle thread must execute schedule()
@@ -882,6 +886,8 @@ asmlinkage __visible void __init __no_sanitize_address __noreturn start_kernel(v
 	char *command_line;
 	char *after_dashes;
 
+	outb(0x40, 0x80);
+
 	set_task_stack_end_magic(&init_task);
 	smp_setup_processor_id();
 	debug_objects_early_init();
@@ -900,13 +906,20 @@ asmlinkage __visible void __init __no_sanitize_address __noreturn start_kernel(v
 	page_address_init();
 	pr_notice("%s", linux_banner);
 	early_security_init();
+
 	setup_arch(&command_line);
+
 	setup_boot_config();
 	setup_command_line(command_line);
 	setup_nr_cpu_ids();
 	setup_per_cpu_areas();
+
+
+
 	smp_prepare_boot_cpu();	/* arch-specific boot-cpu hooks */
+
 	boot_cpu_hotplug_init();
+
 
 	pr_notice("Kernel command line: %s\n", saved_command_line);
 	/* parameters may set static keys */
@@ -938,6 +951,8 @@ asmlinkage __visible void __init __no_sanitize_address __noreturn start_kernel(v
 	mm_core_init();
 	poking_init();
 	ftrace_init();
+
+
 
 	/* trace_printk can be enabled here */
 	early_trace_init();
@@ -1040,6 +1055,7 @@ asmlinkage __visible void __init __no_sanitize_address __noreturn start_kernel(v
 	if (late_time_init)
 		late_time_init();
 	sched_clock_init();
+
 	calibrate_delay();
 
 	/*
@@ -1050,6 +1066,7 @@ asmlinkage __visible void __init __no_sanitize_address __noreturn start_kernel(v
 	 * must be called after late_time_init() so that Hyper-V x86/x64
 	 * hypercalls work when the SWIOTLB bounce buffers are decrypted.
 	 */
+
 	mem_encrypt_init();
 
 	pid_idr_init();
@@ -1082,7 +1099,9 @@ asmlinkage __visible void __init __no_sanitize_address __noreturn start_kernel(v
 
 	acpi_subsystem_init();
 	arch_post_acpi_subsys_init();
+
 	kcsan_init();
+
 
 	/* Do the rest non-__init'ed, we're now alive */
 	arch_call_rest_init();
@@ -1483,6 +1502,8 @@ static int __ref kernel_init(void *unused)
 	rcu_end_inkernel_boot();
 
 	do_sysctl_args();
+
+	outb(0x41, 0x80);
 
 	if (ramdisk_execute_command) {
 		ret = run_init_process(ramdisk_execute_command);

@@ -734,6 +734,7 @@ void __init early_snp_set_memory_shared(unsigned long vaddr, unsigned long paddr
 	if (!(sev_status & MSR_AMD64_SEV_SNP_ENABLED))
 		return;
 
+
 	/* Invalidate the memory pages before they are marked shared in the RMP table. */
 	pvalidate_pages(vaddr, npages, false);
 
@@ -912,6 +913,7 @@ void snp_set_memory_shared(unsigned long vaddr, unsigned int npages)
 	pvalidate_pages(vaddr, npages, false);
 
 	set_pages_state(vaddr, npages, SNP_PAGE_STATE_SHARED);
+
 }
 
 void snp_set_memory_private(unsigned long vaddr, unsigned int npages)
@@ -1253,8 +1255,9 @@ void setup_ghcb(void)
 		return;
 
 	/* First make sure the hypervisor talks a supported protocol. */
-	if (!sev_es_negotiate_protocol())
+	if (!sev_es_negotiate_protocol()) {
 		sev_es_terminate(SEV_TERM_SET_GEN, GHCB_SEV_ES_GEN_REQ);
+	}
 
 	/*
 	 * Check whether the runtime #VC exception handler is active. It uses
@@ -1535,6 +1538,20 @@ static enum es_result vc_handle_mmio_movs(struct es_em_ctxt *ctxt,
 		return ES_RETRY;
 }
 
+static enum es_result vc_handle_invalid(struct ghcb *ghcb, struct es_em_ctxt *ctxt) 
+{
+	unsigned long fault_addr;
+	asm volatile("movq %%cr2, %[some]"
+    		: [some] "=r" (fault_addr)
+		);
+
+	pr_info("VC_HANDLE_INVALID: FAULT_ADDR=0x%lx\n", __pa_nodebug(fault_addr));
+
+	pvalidate_pages(fault_addr, 1, 1);
+	ctxt->insn.length = 0;
+	return ES_OK;	
+}
+
 static enum es_result vc_handle_mmio(struct ghcb *ghcb, struct es_em_ctxt *ctxt)
 {
 	struct insn *insn = &ctxt->insn;
@@ -1806,6 +1823,9 @@ static enum es_result vc_handle_exitcode(struct es_em_ctxt *ctxt,
 	case SVM_EXIT_NPF:
 		result = vc_handle_mmio(ghcb, ctxt);
 		break;
+	case 0x404:
+		result = vc_handle_invalid(ghcb, ctxt);
+		break;
 	default:
 		/*
 		 * Unexpected #VC exception
@@ -2050,7 +2070,7 @@ bool __init handle_vc_boot_ghcb(struct pt_regs *regs)
 fail:
 	show_regs(regs);
 
-	sev_es_terminate(SEV_TERM_SET_GEN, GHCB_SEV_ES_GEN_REQ);
+	sev_es_terminate(SEV_TERM_SET_GEN, exit_code);
 }
 
 /*

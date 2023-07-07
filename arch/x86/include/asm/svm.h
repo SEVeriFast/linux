@@ -511,6 +511,11 @@ struct ghcb {
 	u32 ghcb_usage;
 } __packed;
 
+struct lazy_validated_range {
+	unsigned int range_start;
+	unsigned int range_end;
+	struct lazy_validated_range* next;
+};
 
 #define EXPECTED_VMCB_SAVE_AREA_SIZE		740
 #define EXPECTED_GHCB_SAVE_AREA_SIZE		1032

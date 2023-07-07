@@ -71,6 +71,7 @@ void load_stage2_idt(void)
 
 void cleanup_exception_handling(void)
 {
+	cleanup_lazy_validated_pages();
 	/*
 	 * Flush GHCB from cache and map it encrypted again when running as
 	 * SEV-ES guest.
@@ -81,4 +82,6 @@ void cleanup_exception_handling(void)
 	boot_idt_desc.size    = 0;
 	boot_idt_desc.address = 0;
 	load_boot_idt(&boot_idt_desc);
+
+	
 }

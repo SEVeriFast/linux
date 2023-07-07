@@ -28,6 +28,14 @@
 struct ghcb boot_ghcb_page __aligned(PAGE_SIZE);
 struct ghcb *boot_ghcb;
 
+struct lazy_valid_range_entry {
+	unsigned int addr;
+	unsigned int size;
+} __packed;
+
+static int lazy_valid_entry_count = 0;
+struct lazy_valid_range_entry lazy_validated_addresses[PAGE_SIZE];
+
 /*
  * Copy a version of this function here - insn-eval.c can't be used in
  * pre-decompression code.
@@ -127,6 +135,7 @@ static void __page_state_change(unsigned long paddr, enum psc_op op)
 	if (!sev_snp_enabled())
 		return;
 
+
 	/*
 	 * If private -> shared then invalidate the page before requesting the
 	 * state change in the RMP table.
@@ -134,9 +143,13 @@ static void __page_state_change(unsigned long paddr, enum psc_op op)
 	if (op == SNP_PAGE_STATE_SHARED && pvalidate(paddr, RMP_PG_SIZE_4K, 0))
 		sev_es_terminate(SEV_TERM_SET_LINUX, GHCB_TERM_PVALIDATE);
 
+
 	/* Issue VMGEXIT to change the page state in RMP table. */
 	sev_es_wr_ghcb_msr(GHCB_MSR_PSC_REQ_GFN(paddr >> PAGE_SHIFT, op));
+
 	VMGEXIT();
+
+
 
 	/* Read the response of the VMGEXIT. */
 	val = sev_es_rd_ghcb_msr();
@@ -163,8 +176,10 @@ void snp_set_page_shared(unsigned long paddr)
 
 static bool early_setup_ghcb(void)
 {
-	if (set_page_decrypted((unsigned long)&boot_ghcb_page))
+
+	if (set_page_decrypted((unsigned long)&boot_ghcb_page)) {
 		return false;
+	}
 
 	/* Page is now mapped decrypted, clear it */
 	memset(&boot_ghcb_page, 0, sizeof(boot_ghcb_page));
@@ -181,10 +196,46 @@ static bool early_setup_ghcb(void)
 	return true;
 }
 
+void cleanup_lazy_validated_pages(void)
+{
+	int ret;
+	debug_putstr("invalidating lazy validated pages...");
+	for(int i = 0; i < lazy_valid_entry_count; i ++){
+		unsigned int size = lazy_validated_addresses[i].size;
+		unsigned int addr = lazy_validated_addresses[i].addr;
+
+		if(addr >= 0x1000000 && addr < 0x2800960) {
+			while(1) { asm("hlt"); }
+		}
+
+		// debug_putstr("lazy validated range: addr=0x");
+		// debug_puthex(addr & ~0xfff);
+		// debug_putstr(", size=0x");
+		// debug_puthex(size);
+		// debug_putstr(", count=0x");
+		// debug_puthex(lazy_valid_entry_count);
+		// debug_putstr("\n");
+
+		while(size) {
+			//try to invalidate the range page by page
+			if(ret = pvalidate(addr, 0, 0)){
+				debug_putstr("pvalidate failed, ret=");
+				debug_puthex(ret);
+				debug_putstr("\n");
+				while(1) {asm("hlt"); }
+			}
+			size -= PAGE_SIZE;
+			addr += PAGE_SIZE;
+		}
+	}
+	debug_putstr("done\n");
+}
+
 void sev_es_shutdown_ghcb(void)
 {
 	if (!boot_ghcb)
 		return;
+
 
 	if (!sev_es_check_cpu_features())
 		error("SEV-ES CPU Features missing.");
@@ -194,8 +245,10 @@ void sev_es_shutdown_ghcb(void)
 	 * Otherwise the running kernel will see strange cache effects when
 	 * trying to use that page.
 	 */
+
 	if (set_page_encrypted((unsigned long)&boot_ghcb_page))
 		error("Can't map GHCB page encrypted");
+
 
 	/*
 	 * GHCB page is mapped encrypted again and flushed from the cache.
@@ -233,14 +286,23 @@ void do_boot_stage2_vc(struct pt_regs *regs, unsigned long exit_code)
 {
 	struct es_em_ctxt ctxt;
 	enum es_result result;
+	unsigned long fault_addr;
 
-	if (!boot_ghcb && !early_setup_ghcb())
-		sev_es_terminate(SEV_TERM_SET_GEN, GHCB_SEV_ES_GEN_REQ);
+	if (!boot_ghcb && exit_code == 0x404) {
+		goto invalid_page;
+	}
+
+	if (!boot_ghcb && !early_setup_ghcb()) {
+		sev_es_terminate(SEV_TERM_SET_GEN, 5);	
+	}
 
 	vc_ghcb_invalidate(boot_ghcb);
 	result = vc_init_em_ctxt(&ctxt, regs, exit_code);
-	if (result != ES_OK)
+	if (result != ES_OK) {
 		goto finish;
+	}
+
+invalid_page:
 
 	switch (exit_code) {
 	case SVM_EXIT_RDTSC:
@@ -253,7 +315,42 @@ void do_boot_stage2_vc(struct pt_regs *regs, unsigned long exit_code)
 	case SVM_EXIT_CPUID:
 		result = vc_handle_cpuid(boot_ghcb, &ctxt);
 		break;
+	//address not validated
+	case 0x404:
+		if(sev_snp_enabled()){
+			//if some memory is accessed that needs to be validated, do it lazily
+			//faulting address is stored in cr2
+			asm volatile("movq %%cr2, %[some]"
+				: [some] "=r" (fault_addr)
+			);
+			if(pvalidate(fault_addr, RMP_PG_SIZE_4K, 1)){
+				result = ES_EXCEPTION;
+			}
+			ctxt.insn.length = 0;
+			// for(int i = 0; i < lazy_valid_entry_count; i++){
+			// 	if(lazy_validated_addresses[i].addr + lazy_validated_addresses[i].size == fault_addr){
+			// 		lazy_validated_addresses[i].size = lazy_validated_addresses[i].size + PAGE_SIZE;
+			// 		fault_addr = 0;
+			// 		break;
+			// 	}
+			// }
+
+			lazy_validated_addresses[lazy_valid_entry_count].addr = fault_addr;
+			lazy_validated_addresses[lazy_valid_entry_count].size = PAGE_SIZE;
+			lazy_valid_entry_count++;
+		}
+		
+		break;
 	default:
+		//just print the faulting frame number (it could be lazily pvalidated, but that could mess up assumptions in the actual kernel)
+		// if (exit_code == 0x404) {
+		// 	asm volatile("movq %%cr2, %[some]"
+		// 		: [some] "=r" (fault_addr)
+		// 	);
+		// 	sev_es_terminate(fault_addr >> 20, fault_addr >> 12);
+		// } else {
+		// 	sev_es_terminate(exit_code >> 8 , exit_code);
+		// }
 		result = ES_UNSUPPORTED;
 		break;
 	}
@@ -262,7 +359,7 @@ finish:
 	if (result == ES_OK)
 		vc_finish_insn(&ctxt);
 	else if (result != ES_RETRY)
-		sev_es_terminate(SEV_TERM_SET_GEN, GHCB_SEV_ES_GEN_REQ);
+		sev_es_terminate(SEV_TERM_SET_GEN, result);
 }
 
 static void enforce_vmpl0(void)
