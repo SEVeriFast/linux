@@ -81,6 +81,7 @@
 
 	.code32
 SYM_FUNC_START(startup_32)
+
 	/*
 	 * 32bit entry is 0 and it is ABI so immutable!
 	 * If we come here directly from a bootloader,
@@ -308,6 +309,24 @@ SYM_FUNC_END(efi32_stub_entry)
 	.code64
 	.org 0x200
 SYM_CODE_START(startup_64)
+
+	mov       $0xC0010131, %ecx
+    rdmsr
+    bt        $1, %eax
+	jc		  sev_es_debug
+
+	movl	  $0x39, %eax
+	outb	  $0x80
+
+sev_es_debug:
+	# DEBUG signal entry point for
+	movl $0xC0010130, %ecx
+	xorl %eax, %eax
+	xorl %edx, %edx
+	movl $0x14, %eax
+	wrmsr
+	vmgexit
+
 	/*
 	 * 64bit entry is 0x200 and it is ABI so immutable!
 	 * We come here either from startup_32 or directly from a
