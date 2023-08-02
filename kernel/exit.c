@@ -840,7 +840,6 @@ void __noreturn do_exit(long code)
 		 * immediately to get a useable coredump.
 		 */
 		if (unlikely(is_global_init(tsk))) {
-			outb(0x42, 0x80);
 			panic("Attempted to kill init! exitcode=0x%08x\n",
 				tsk->signal->group_exit_code ?: (int)code);
 		}

@@ -1513,8 +1513,6 @@ static int __ref kernel_init(void *unused)
 		       ramdisk_execute_command, ret);
 	}
 
-	outb(0x42, 0x80);
-
 	/*
 	 * We try each of these until one succeeds.
 	 *
