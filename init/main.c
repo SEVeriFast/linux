@@ -886,8 +886,6 @@ asmlinkage __visible void __init __no_sanitize_address __noreturn start_kernel(v
 	char *command_line;
 	char *after_dashes;
 
-	outb(0x40, 0x80);
-
 	set_task_stack_end_magic(&init_task);
 	smp_setup_processor_id();
 	debug_objects_early_init();
