@@ -701,7 +701,10 @@ static void __init do_populate_rootfs(void *unused, async_cookie_t cookie)
 	else
 		printk(KERN_INFO "Unpacking initramfs...\n");
 
+	outb(0x90, 0x80);
+
 	err = unpack_to_rootfs((char *)initrd_start, initrd_end - initrd_start);
+	outb(0x91, 0x80);
 	if (err) {
 #ifdef CONFIG_BLK_DEV_RAM
 		populate_initrd_image(err);
