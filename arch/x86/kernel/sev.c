@@ -655,9 +655,7 @@ static void pvalidate_pages(unsigned long vaddr, unsigned int npages, bool valid
 
 	while (vaddr < vaddr_end) {
 		rc = pvalidate(vaddr, RMP_PG_SIZE_4K, validate);
-		if (WARN(rc, "Failed to validate address 0x%lx ret %d", vaddr, rc))
-			sev_es_terminate(SEV_TERM_SET_LINUX, GHCB_TERM_PVALIDATE);
-
+		WARN(rc, "Failed to validate address 0x%lx ret %d", vaddr, rc);
 		vaddr = vaddr + PAGE_SIZE;
 	}
 }
