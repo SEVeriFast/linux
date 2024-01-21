@@ -1545,8 +1545,6 @@ static enum es_result vc_handle_invalid(struct ghcb *ghcb, struct es_em_ctxt *ct
     		: [some] "=r" (fault_addr)
 		);
 
-	pr_info("VC_HANDLE_INVALID: FAULT_ADDR=0x%lx\n", __pa_nodebug(fault_addr));
-
 	pvalidate_pages(fault_addr, 1, 1);
 	ctxt->insn.length = 0;
 	return ES_OK;	
